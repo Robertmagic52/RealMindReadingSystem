@@ -7,7 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     .safe-top {
-      padding-top: calc(max(env(safe-area-inset-top, 0px), 54px) + 1rem);
+      padding-top: calc(max(env(safe-area-inset-top, 0px), 64px) + 1.5rem);
     }
   </style>
 </head>
@@ -88,7 +88,7 @@
   <!-- MODAL 1: LARGE AI SUMMARY READER             -->
   <!-- ========================================== -->
   <div id="summary-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 safe-top">
-    <div class="bg-[#12131c] border border-white/10 rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+    <div class="bg-[#12131c] border border-white/10 rounded-2xl w-full max-w-2xl max-h-[82vh] flex flex-col shadow-2xl overflow-hidden">
       <div class="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-black/20">
         <h2 class="text-sm font-semibold text-white flex items-center gap-2">
           <span id="summary-modal-title">AI Summary</span>
@@ -109,7 +109,7 @@
   <!-- MODAL 2: TELEMETRY INSPECTOR                 -->
   <!-- ========================================== -->
   <div id="inspector-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 safe-top">
-    <div class="bg-[#12131c] border border-white/10 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+    <div class="bg-[#12131c] border border-white/10 rounded-2xl w-full max-w-3xl max-h-[82vh] flex flex-col shadow-2xl overflow-hidden">
       <div class="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-black/20">
         <h2 class="text-sm font-medium text-white flex items-center gap-2">
           <span>Session Inspector</span>
@@ -225,8 +225,8 @@
     async function loadAllData() {
       try {
         const [subRes, sumRes] = await Promise.all([
-          fetch('/api/submissions'),
-          fetch('/api/summaries')
+          fetch('/api/submissions?t=' + Date.now()),
+          fetch('/api/summaries?t=' + Date.now())
         ]);
         const subJson = await subRes.json();
         const sumJson = await sumRes.json();
@@ -288,7 +288,7 @@
       }).join('');
     }
 
-    // --- TWO-TAP INLINE DELETION (NO native confirm() needed) ---
+    // --- TWO-TAP INLINE DELETION ---
     async function handleDeleteItem(btn, id, submissionId) {
       if (btn.dataset.armed !== 'true') {
         btn.dataset.armed = 'true';
