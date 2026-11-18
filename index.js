@@ -60,14 +60,61 @@ const submissionSchema = new mongoose.Schema({
 });
 const Submission = mongoose.model('Submission', submissionSchema);
 
+// strict: false allows saving any additional custom keys from Shortcuts
 const summarySchema = new mongoose.Schema({
   id: { type: String, index: true },
   submissionId: { type: String, default: null },
-  title: String,
-  text: String,
+  title: { type: String, default: 'Untitled Summary' },
+  text: { type: String, default: '' },
+
+  // Stage 1: Vision & Identity Keys
+  name: { type: String, default: '' },
+  phone: { type: String, default: '' },
+  reversePhone: { type: String, default: '' },
+  dob: { type: String, default: '' },
+  starSign: { type: String, default: '' },
+  birthDayOfWeek: { type: String, default: '' },
+  historicalEvent: { type: String, default: '' },
+
+  // Stage 2: Mentalist Backstage Assistant Keys
+  estimatedLocation: { type: String, default: '' },
+  locationConfidence: { type: String, default: '' },
+  locationReasoning: { type: String, default: '' },
+  keyPerson: { type: String, default: '' },
+  keyPersonRelationship: { type: String, default: '' },
+  nuggetNamePerson: { type: String, default: '' },
+  nuggetLingeringTask: { type: String, default: '' },
+  nuggetLateThought: { type: String, default: '' },
+  nuggetAmbientVibe: { type: String, default: '' },
+  nuggetPivot: { type: String, default: '' },
+  pets: { type: String, default: '' },
+  extraDetails: { type: String, default: '' },
+
   timestamp: { type: Number, index: true }
-});
+}, { strict: false });
+
 const Summary = mongoose.model('Summary', summarySchema);
+
+// ==================================================
+// 0.5 INJECT V2 WEBHOOK HELPER
+// ==================================================
+const INJECT_URL = 'https://11z.co/_w/19470/selection';
+
+async function sendToInject(cleanPhone) {
+  if (!cleanPhone || cleanPhone.toLowerCase() === 'not found') return;
+  try {
+    await fetch(INJECT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        value: String(cleanPhone),
+        source: 'V2'
+      })
+    });
+  } catch (err) {
+    console.error('Inject webhook error:', err);
+  }
+}
 
 // ==================================================
 // 1. KEEP-ALIVE HEALTH ROUTE
@@ -169,7 +216,7 @@ app.get('/api/latest', async (req, res) => {
 });
 
 // ==================================================
-// 3. AI SUMMARY HISTORY ROUTES
+// 3. AI SUMMARY HISTORY ROUTES (INDIVIDUAL KEYS + FULL TEXT)
 // ==================================================
 const SUMMARIES_FILE = path.join(__dirname, 'summaries.json');
 
@@ -198,21 +245,78 @@ async function getSummaries() {
 
 app.post('/api/summaries/submit', async (req, res) => {
   try {
-    const { text, submissionId = null } = req.body || {};
-    if (!text || typeof text !== 'string') {
-      return res.status(400).json({ success: false, error: 'Missing or invalid text field' });
+    const {
+      text = '',
+      fullSummary = '',
+      submissionId = null,
+      name = '',
+      phone = '',
+      reversePhone = '',
+      dob = '',
+      starSign = '',
+      birthDayOfWeek = '',
+      historicalEvent = '',
+      estimatedLocation = '',
+      locationConfidence = '',
+      locationReasoning = '',
+      keyPerson = '',
+      keyPersonRelationship = '',
+      nuggetNamePerson = '',
+      nuggetLingeringTask = '',
+      nuggetLateThought = '',
+      nuggetAmbientVibe = '',
+      nuggetPivot = '',
+      pets = '',
+      extraDetails = '',
+      ...extraFields
+    } = req.body || {};
+
+    const resolvedText = (text || fullSummary || '').toString();
+
+    // Ensure phone is strictly clean 10 digits if present
+    const rawDigits = String(phone).replace(/\D/g, '');
+    const cleanPhone = (rawDigits.length === 11 && rawDigits.startsWith('1'))
+      ? rawDigits.slice(1)
+      : (rawDigits || String(phone).trim());
+
+    if (!resolvedText && !name && !cleanPhone) {
+      return res.status(400).json({ success: false, error: 'Missing summary text or extracted fields' });
     }
 
-    const firstLine = text.split('\n')[0].trim();
-    const title = firstLine.length > 0 ? firstLine : 'Untitled Summary';
+    const fallbackFirstLine = resolvedText.split('\n')[0].trim();
+    const hasValidName = name && name.trim() !== '' && name.trim().toLowerCase() !== 'not found';
+    const title = hasValidName
+      ? name.trim()
+      : (fallbackFirstLine.length > 0 ? fallbackFirstLine : 'Untitled Summary');
+
     const timestamp = Date.now();
     const cleanSubId = submissionId ? String(submissionId).trim() : null;
 
     const newEntry = {
-      id: Date.now().toString(),
-      submissionId: cleanSubId, // Links this AI summary directly to the telemetry record ID
+      id: timestamp.toString(),
+      submissionId: cleanSubId,
       title,
-      text,
+      text: resolvedText,
+      name,
+      phone: cleanPhone,
+      reversePhone: String(reversePhone).trim(),
+      dob,
+      starSign,
+      birthDayOfWeek,
+      historicalEvent,
+      estimatedLocation,
+      locationConfidence,
+      locationReasoning,
+      keyPerson,
+      keyPersonRelationship,
+      nuggetNamePerson,
+      nuggetLingeringTask,
+      nuggetLateThought,
+      nuggetAmbientVibe,
+      nuggetPivot,
+      pets,
+      extraDetails,
+      ...extraFields,
       timestamp
     };
 
@@ -222,6 +326,11 @@ app.post('/api/summaries/submit', async (req, res) => {
       const summaries = getLocalSummaries();
       summaries.unshift(newEntry);
       saveLocalSummaries(summaries);
+    }
+
+    // Send strictly the clean 10-digit phone number to Inject V2
+    if (cleanPhone && cleanPhone.toLowerCase() !== 'not found') {
+      sendToInject(cleanPhone);
     }
 
     return res.status(200).json({ success: true, entry: newEntry });
@@ -235,6 +344,18 @@ app.get('/api/summaries', async (req, res) => {
   try {
     const summaries = await getSummaries();
     return res.status(200).json({ success: true, summaries });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+app.get('/api/summaries/latest', async (req, res) => {
+  try {
+    const summaries = await getSummaries();
+    if (summaries.length === 0) {
+      return res.status(404).json({ success: false, error: 'No summaries yet' });
+    }
+    return res.status(200).json({ success: true, ...summaries[0] });
   } catch (error) {
     return res.status(500).json({ success: false, error: 'Server error' });
   }
@@ -367,7 +488,6 @@ app.all('/api/update-link', async (req, res) => {
     if (!data) return res.status(404).json({ success: false, error: 'Portal data not found' });
 
     const links = data.links || [];
-    // Match by exact ID first, or fall back to 1-based button number (e.g. id=1 -> Button #1)
     let target = links.find(item => item.id === String(id));
     if (!target && !isNaN(Number(id)) && Number(id) >= 1 && Number(id) <= links.length) {
       target = links[Number(id) - 1];
