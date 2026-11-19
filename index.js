@@ -12,7 +12,7 @@ app.use(express.json({ limit: '15mb' }));
 app.use((req, res, next) => {
   res.set({
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
     'Pragma': 'no-cache',
@@ -337,6 +337,74 @@ app.post('/api/summaries/submit', async (req, res) => {
   } catch (error) {
     console.error('Error in /api/summaries/submit:', error);
     return res.status(500).json({ success: false, error: 'Server error' });
+  }
+});
+
+// Edit/Update an existing AI summary entry by ID
+app.patch('/api/summaries/:id', async (req, res) => {
+  try {
+    const targetId = String(req.params.id).trim();
+    const allowedFields = [
+      'text', 'name', 'phone', 'reversePhone', 'dob', 'starSign',
+      'birthDayOfWeek', 'historicalEvent', 'estimatedLocation',
+      'locationConfidence', 'locationReasoning', 'keyPerson',
+      'keyPersonRelationship', 'nuggetNamePerson', 'nuggetLingeringTask',
+      'nuggetLateThought', 'nuggetAmbientVibe', 'nuggetPivot',
+      'pets', 'extraDetails'
+    ];
+
+    const updates = {};
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updates[field] = String(req.body[field]).trim();
+      }
+    }
+
+    // Update title if name changed
+    if (updates.name !== undefined) {
+      const hasValidName = updates.name !== '' && updates.name.toLowerCase() !== 'not found';
+      if (hasValidName) {
+        updates.title = updates.name;
+      }
+    }
+
+    // Re-clean phone to 10 digits and re-sync to Inject V2 if edited
+    if (updates.phone !== undefined) {
+      const rawDigits = updates.phone.replace(/\D/g, '');
+      const cleanPhone = (rawDigits.length === 11 && rawDigits.startsWith('1'))
+        ? rawDigits.slice(1)
+        : (rawDigits || updates.phone);
+      updates.phone = cleanPhone;
+
+      if (cleanPhone && cleanPhone.toLowerCase() !== 'not found') {
+        sendToInject(cleanPhone);
+      }
+    }
+
+    if (isDbConnected()) {
+      const updated = await Summary.findOneAndUpdate(
+        { id: targetId },
+        { $set: updates },
+        { new: true }
+      ).lean();
+
+      if (!updated) {
+        return res.status(404).json({ success: false, error: 'Summary not found' });
+      }
+      return res.status(200).json({ success: true, entry: updated });
+    } else {
+      const summaries = getLocalSummaries();
+      const idx = summaries.findIndex(s => String(s.id) === targetId);
+      if (idx === -1) {
+        return res.status(404).json({ success: false, error: 'Summary not found' });
+      }
+      summaries[idx] = { ...summaries[idx], ...updates };
+      saveLocalSummaries(summaries);
+      return res.status(200).json({ success: true, entry: summaries[idx] });
+    }
+  } catch (error) {
+    console.error('Error updating summary:', error);
+    return res.status(500).json({ success: false, error: 'Failed to update summary' });
   }
 });
 
